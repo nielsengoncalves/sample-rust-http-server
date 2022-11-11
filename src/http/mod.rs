@@ -1,5 +1,5 @@
-pub use method::Method;
+pub use error::ParseError;
 pub use request::Request;
 
-pub mod method;
+pub mod error;
 pub mod request;
