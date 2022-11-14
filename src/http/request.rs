@@ -1,4 +1,5 @@
 use super::error::ParseError;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::str;
 use strum_macros::EnumString;
@@ -43,22 +44,60 @@ pub struct Query {
     values: Vec<String>,
 }
 
+impl Query {
+    pub fn new(name: String, values: Vec<String>) -> Self {
+        Query { name, values }
+    }
+}
+
 #[derive(Debug)]
 pub struct Path {
     path: String,
-    queries: Option<Vec<Query>>,
+    queries: Vec<Query>,
 }
 
 impl TryFrom<&str> for Path {
     type Error = ParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        // TODO: Fix query parser
-        Ok(Self {
-            path: value.to_string(),
-            queries: Option::None,
-        })
+        let (path, queries) = split_path_and_query_string(&value)?;
+        Ok(Self { path, queries })
     }
+}
+
+fn split_path_and_query_string(full_path: &str) -> Result<(String, Vec<Query>), ParseError> {
+    for (i, char) in full_path.chars().enumerate() {
+        if char == '?' {
+            let path = &full_path[..i];
+            let query_string = &full_path[i + 1..];
+            let queries = get_queries(query_string)?;
+            return Ok((path.to_string(), queries));
+        }
+    }
+
+    Ok((full_path.to_string(), Vec::<Query>::new()))
+}
+
+fn get_queries(query_string: &str) -> Result<Vec<Query>, ParseError> {
+    let mut queries_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for query in query_string.split("&").into_iter() {
+        let (key, value) = query.split_once("=").ok_or(ParseError::InvalidQuery)?;
+
+        match queries_map.get_mut(key) {
+            Some(values) => {
+                values.push(value.to_string());
+            }
+            None => {
+                queries_map.insert(key.to_string(), vec![value.to_string()]);
+            }
+        }
+    }
+
+    Ok(queries_map
+        .into_iter()
+        .map(|(key, values)| Query::new(key.to_string(), values.to_vec()))
+        .collect())
 }
 
 #[derive(Debug)]
@@ -76,6 +115,7 @@ impl TryFrom<&[u8; 1024]> for Request {
         let request = str::from_utf8(value)?;
 
         let (method_str, request) = get_next_token(&request).ok_or(ParseError::InvalidMethod)?;
+
         let method: Method = method_str
             .try_into()
             .map_err(|_| ParseError::InvalidMethod)?;

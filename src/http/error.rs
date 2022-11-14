@@ -15,6 +15,8 @@ pub enum ParseError {
     InvalidMethod,
     #[error("Invalid Path")]
     InvalidPath,
+    #[error("Invalid Query")]
+    InvalidQuery,
 }
 
 impl From<Utf8Error> for ParseError {
