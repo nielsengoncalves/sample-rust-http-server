@@ -33,108 +33,97 @@ pub enum Protocol {
 }
 
 #[derive(Debug)]
-pub struct Header {
-    name: String,
-    value: String,
+pub struct Header<'buf> {
+    name: &'buf str,
+    value: &'buf str,
 }
 
 #[derive(Debug)]
-pub struct Query {
-    name: String,
-    values: Vec<String>,
+pub struct Query<'buf> {
+    name: &'buf str,
+    values: Vec<&'buf str>,
 }
 
-impl Query {
-    pub fn new(name: String, values: Vec<String>) -> Self {
+impl <'buf> Query <'buf> {
+    pub fn new(name: &'buf str, values: Vec<&'buf str>) -> Self {
         Query { name, values }
     }
 }
 
 #[derive(Debug)]
-pub struct Path {
-    path: String,
-    queries: Vec<Query>,
+pub struct Path<'buf> {
+    path: &'buf str,
+    queries: Vec<Query<'buf>>,
 }
 
-impl TryFrom<&str> for Path {
+impl <'buf> TryFrom<&'buf str> for Path<'buf> {
     type Error = ParseError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let (path, queries) = split_path_and_query_string(&value)?;
+    fn try_from(value: &'buf str) -> Result<Self, Self::Error> {
+        let (path, queries) = split_path_and_query_string(value)?;
         Ok(Self { path, queries })
     }
 }
 
-fn split_path_and_query_string(full_path: &str) -> Result<(String, Vec<Query>), ParseError> {
-    for (i, char) in full_path.chars().enumerate() {
+fn split_path_and_query_string(path_str: &str) -> Result<(&str, Vec<Query>), ParseError> {
+    for (i, char) in path_str.chars().enumerate() {
         if char == '?' {
-            let path = &full_path[..i];
-            let query_string = &full_path[i + 1..];
-            let queries = get_queries(query_string)?;
-            return Ok((path.to_string(), queries));
+            let (path, query_string) = (&path_str[..i], &path_str[i + 1..]);
+            let queries = parse_queries(query_string)?;
+            return Ok((path, queries));
         }
     }
 
-    Ok((full_path.to_string(), Vec::<Query>::new()))
+    Ok((path_str, Vec::<Query>::new()))
 }
 
-fn get_queries(query_string: &str) -> Result<Vec<Query>, ParseError> {
-    let mut queries_map: HashMap<String, Vec<String>> = HashMap::new();
+fn parse_queries(query_string: &str) -> Result<Vec<Query>, ParseError> {
+    let mut queries_map: HashMap<&str, Vec<&str>> = HashMap::new();
 
     for query in query_string.split("&").into_iter() {
         let (key, value) = query.split_once("=").ok_or(ParseError::InvalidQuery)?;
 
         match queries_map.get_mut(key) {
             Some(values) => {
-                values.push(value.to_string());
+                values.push(value);
             }
             None => {
-                queries_map.insert(key.to_string(), vec![value.to_string()]);
+                queries_map.insert(key, vec![value]);
             }
         }
     }
 
     Ok(queries_map
         .into_iter()
-        .map(|(key, values)| Query::new(key.to_string(), values.to_vec()))
+        .map(|(key, values)| Query::new(key, values.to_vec()))
         .collect())
 }
 
 #[derive(Debug)]
-pub struct Request {
+pub struct Request<'buf> {
     protocol: Protocol,
     method: Method,
-    path: Path,
-    headers: Option<Vec<Header>>,
+    path: Path<'buf>,
+    headers: Option<Vec<Header<'buf>>>,
 }
 
-impl TryFrom<&[u8; 1024]> for Request {
+impl <'buf> TryFrom<&'buf [u8; 1024]> for Request<'buf> {
     type Error = ParseError;
 
-    fn try_from(value: &[u8; 1024]) -> Result<Self, Self::Error> {
+    fn try_from(value: &'buf [u8; 1024]) -> Result<Self, Self::Error> {
         let request = str::from_utf8(value)?;
 
         let (method_str, request) = get_next_token(&request).ok_or(ParseError::InvalidMethod)?;
-
-        let method: Method = method_str
-            .try_into()
-            .map_err(|_| ParseError::InvalidMethod)?;
+        let method: Method = method_str.parse().map_err(|_| ParseError::InvalidMethod)?;
 
         let (path_str, request) = get_next_token(&request).ok_or(ParseError::InvalidPath)?;
-        let path: Path = path_str.try_into()?;
+        let path: Path = path_str.try_into().map_err(|_| ParseError::InvalidPath)?;
 
         let (protocol_str, _) = get_next_token(&request).ok_or(ParseError::InvalidProtocol)?;
-        let protocol: Protocol = protocol_str
-            .try_into()
-            .map_err(|_| ParseError::InvalidProtocol)?;
+        let protocol: Protocol = protocol_str.parse().map_err(|_| ParseError::InvalidProtocol)?;
 
         // TODO: Fix headers parser
-        Ok(Self {
-            protocol,
-            method,
-            path,
-            headers: Option::None,
-        })
+        Ok(Self { protocol, method, path, headers: Option::None })
     }
 }
 

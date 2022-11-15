@@ -35,10 +35,7 @@ impl Server {
         let mut buffer = [0; 1024];
         match tcp_stream.read(&mut buffer) {
             Ok(_) => {
-                println!(
-                    "Received request: {:?}",
-                    String::from_utf8_lossy(&buffer).to_string()
-                );
+                println!("Received request: {:?}", String::from_utf8_lossy(&buffer));
 
                 match Request::try_from(&buffer) {
                     Ok(request) => {
